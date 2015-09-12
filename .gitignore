@@ -1,0 +1,5 @@
+*.elf
+*.hex
+*.original
+*.lss
+*.lst
