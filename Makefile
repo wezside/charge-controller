@@ -8,7 +8,7 @@ SOURCE = main
 MCU = attiny85
 
 # CPU speed, needed by <util/delay.h>
-F_CPU = 8000000
+F_CPU = 8000000UL
 
 # tools
 CC = avr-gcc
@@ -27,7 +27,7 @@ CC_LST = -Wa,-adhlns
 AVRDUDE_CONF = -C /usr/share/arduino/hardware/tools/avrdude.conf -v
 AVRDUDE_WRITE_FLASH = -U flash:w:$(SOURCE).hex
 AVRDUDE_PROGRAMER = stk500v1
-AVRDUDE_PORT = /dev/ttyACM1
+AVRDUDE_PORT = /dev/ttyACM0
 BAUD = 19200
 
 # some strings for the UI
@@ -38,7 +38,7 @@ STR_END = Done.
 
 # general targets
 build:
-	$(CC) -mmcu=$(MCU) -W$(CC_WARN) -DF_CPU=$(F_CPU) -O$(CC_OPT) $(CC_LST)=$(SOURCE).lst $(SOURCE).c -o $(SOURCE).elf
+	$(CC) -mmcu=$(MCU) -W$(CC_WARN) -DF_CPU=$(F_CPU) -O$(CC_OPT) $(CC_LST)=$(SOURCE).lst dbg_putchar.c $(SOURCE).c -o $(SOURCE).elf
 	$(OBJD) -S $(SOURCE).elf > $(SOURCE).lss
 	$(OBJ) -O ihex $(SOURCE).elf $(SOURCE).hex
 size:
