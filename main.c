@@ -1,5 +1,6 @@
 
-// How long we want to blink the LED for
+// LED 
+#define LED_PIN PB4
 #define LED_DURATION 1000
 
 #include <stdlib.h>
@@ -13,7 +14,7 @@
 
 #define STX_PORT        PORTB
 #define STX_DDR         DDRB
-#define STX_BIT         0
+#define STX_BIT         1
 
 
 void sputchar( uint8_t c )
@@ -55,11 +56,12 @@ uint16_t temp_meas()
 	return  ADC; 
 }
 
-/** 
- * This will enable the analog to digital converter which allows
- * us to read an anlog input value on a pin.
- */
-void enable_adc()
+void disable_adc()
+{
+	ADCSRA &= ~(1 << ADEN);
+}
+
+long read_vcc()
 {
 	// Configure ADMUX register
 	ADMUX |=
@@ -72,18 +74,7 @@ void enable_adc()
 	ADCSRA |=
 		(1 << ADEN)| // Set ADEN bit to 1 to enable the ADC
 		(0 << ADSC); // Set ADSC to 0 to make sure no conversions are happening
-}
 
-void disable_adc()
-{
-	ADCSRA &= ~(1 << ADEN);
-}
-
-long read_vcc()
-{
-	// Enable the ADC register
-	enable_adc();
-	
 	// Wait for Vref to settle
   	_delay_ms(250);
 
@@ -102,6 +93,59 @@ long read_vcc()
   	return result; // Vcc in millivolts
 }
 
+void wdt_reset_safety()
+{
+	cli(); 
+	// The MCU Status Register provides information on which reset source caused an MCU Reset.
+	// Test to see if it was the Watchdog timer - if it was disable it to avoid an infinite reset 
+	// loop.
+	if (MCUSR & (1 << WDRF))
+	{            
+		// If a reset was caused by the Watchdog Timer...
+		MCUSR &= ~(1 << WDRF);                  // Clear the WDT reset flag
+		WDTCR |= ((1 << WDCE) | (1 << WDE));    // Enable the WD Change Bit
+		WDTCR  = 0x00;                      	// Disable the WDT
+	}
+	sei();
+}
+
+//Sets the watchdog timer to wake us up, but not reset
+//0=16ms, 1=32ms, 2=64ms, 3=128ms, 4=250ms, 5=500ms
+//6=1sec, 7=2sec, 8=4sec, 9=8sec
+//From: http://interface.khm.de/index.php/lab/experiments/sleep_watchdog_battery/
+void init_wdt(int timerPrescaler) 
+{
+
+  if (timerPrescaler > 9 ) timerPrescaler = 9; //Limit incoming amount to legal settings
+
+  char bb = timerPrescaler & 7; 
+  if (timerPrescaler > 7) bb |= (1<<5); //Set the special 5th bit if necessary
+
+  //This order of commands is important and cannot be combined
+  MCUSR &= ~(1<<WDRF); //Clear the watch dog reset
+  WDTCR |= (1<<WDCE) | (1<<WDE); //Set WD_change enable, set WD enable
+  WDTCR = bb; //Set new watchdog timeout value
+  WDTCR |= (1 << WDIE); //Set the interrupt enable, this will keep unit from resetting after each int
+}
+
+void sleep_avr()
+{
+	// Disable analog to digital converter
+	disable_adc();
+
+	set_sleep_mode(SLEEP_MODE_PWR_DOWN);    // replaces above statement
+	sleep_enable();                         // Sets the Sleep Enable bit in the MCUCR Register (SE BIT)
+
+	sei();                                  // Enable interrupts
+	sleep_cpu();                            // sleep
+	cli();                                  // Disable interrupts
+
+	// enable_adc();
+
+	// Enable global interrupts
+	sei(); 
+}
+
 /*
 Port B Data Direction Register (controls the mode of all pins within port B)
 DDRB is 8 bits: [unused:unused:DDB5:DDB4:DDB3:DDB2:DDB1:DDB0]
@@ -109,36 +153,49 @@ DDRB is 8 bits: [unused:unused:DDB5:DDB4:DDB3:DDB2:DDB1:DDB0]
 void init_pins()
 {
 	// LED PIN
-	DDRB = (1 << PB4);
+	DDRB = (1 << LED_PIN);
 }
 
 void blink()
 {
-	PORTB ^= (1 << PB4);
+	PORTB ^= (1 << LED_PIN);
 	_delay_ms(LED_DURATION);
+}
+
+ISR(WDT_vect)
+{
 }
 
 int main ()
 {
+	// Disable the ADC
+	disable_adc();
+
+	// Watchdog timer reset safety check
+	wdt_reset_safety();
+	
+	// Identify input and output pins
+	init_pins();
+
+	// Initialise watchdog timer
+	init_wdt(9);
+
 	char s[20];
 
 	STX_PORT |= 1<<STX_BIT;
 	STX_DDR |= 1<<STX_BIT;
 
-	enable_adc();
 	sputs( "Hello!\n\r" );
 
 	for (;;)
 	{
-		uint8_t i = 12;
-		for( ; i > 0; i-- )
-		{
-			_delay_ms(2000);
-			utoa(read_vcc(), s, 10 );
-			sputs( s );
-			sputs( " " );
-		}
-		sputs( "\n\r" );
+		// Go to sleep
+		sleep_avr();
+
+		utoa(read_vcc(), s, 10);
+		sputs(s);
+		sputs("\n\r");
+		blink();
 		blink();
 	}
 }

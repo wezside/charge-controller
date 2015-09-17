@@ -38,7 +38,7 @@ STR_END = Done.
 
 # general targets
 build:
-	$(CC) -mmcu=$(MCU) -W$(CC_WARN) -DF_CPU=$(F_CPU) -O$(CC_OPT) $(CC_LST)=$(SOURCE).lst dbg_putchar.c $(SOURCE).c -o $(SOURCE).elf
+	$(CC) -mmcu=$(MCU) -W$(CC_WARN) -DF_CPU=$(F_CPU) -O$(CC_OPT) $(CC_LST)=$(SOURCE).lst $(SOURCE).c -o $(SOURCE).elf
 	$(OBJD) -S $(SOURCE).elf > $(SOURCE).lss
 	$(OBJ) -O ihex $(SOURCE).elf $(SOURCE).hex
 size:
