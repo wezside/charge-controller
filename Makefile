@@ -27,8 +27,8 @@ CC_LST = -Wa,-adhlns
 AVRDUDE_CONF = -C /usr/share/arduino/hardware/tools/avrdude.conf -v
 AVRDUDE_WRITE_FLASH = -U flash:w:$(SOURCE).hex
 AVRDUDE_PROGRAMER = stk500v1
-AVRDUDE_PORT = /dev/ttyACM0
-BAUD = 19200
+AVRDUDE_PORT = /dev/ttyACM2
+BAUDRATE = 19200
 
 # some strings for the UI
 STR_BEGIN = Starting Build...
@@ -49,7 +49,7 @@ clean_files:
 	$(RM) $(SOURCE).lss
 	$(RM) $(SOURCE).hex
 download:
-	$(AVRDUDE) -c $(AVRDUDE_PROGRAMER) -p $(MCU) -P $(AVRDUDE_PORT) $(AVRDUDE_CONF) $(AVRDUDE_WRITE_FLASH) -b $(BAUD)
+	$(AVRDUDE) -c $(AVRDUDE_PROGRAMER) -p $(MCU) -P $(AVRDUDE_PORT) $(AVRDUDE_CONF) $(AVRDUDE_WRITE_FLASH) -b $(BAUDRATE)
 begin_all:
 	@echo $(STR_BEGIN)
 begin_clean:

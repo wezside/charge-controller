@@ -3,6 +3,9 @@
 #define LED_PIN PB4
 #define LED_DURATION 1000
 
+// Bluetooth switch on/off
+#define BLE_PIN PB2
+
 #include <stdlib.h>
 #include <avr/io.h>
 #include <avr/interrupt.h>
@@ -14,7 +17,7 @@
 
 #define STX_PORT        PORTB
 #define STX_DDR         DDRB
-#define STX_BIT         1
+#define STX_BIT         4
 
 
 void sputchar( uint8_t c )
@@ -26,7 +29,6 @@ void sputchar( uint8_t c )
 	uint8_t i = 10;
 	for( ; i > 0; i-- )
 	{    
-
 		_delay_us( 1e6 / BAUD );            // bit duration
 		if( c & 1 )
 		{
@@ -46,16 +48,6 @@ void sputs( void *s )
 	while( *s1 ) sputchar( *s1++ );
 }
 
-uint16_t temp_meas()
-{
-	ADMUX = 1<<REFS1 | 0<<REFS0 | 0<<ADLAR | 0<<REFS2 | 1<<MUX3 | 1<<MUX2 | 1<<MUX1 | 1<<MUX0;
-	        // REF = 1.1V, 10Bit, Temp
-	ADCSRA = 1<<ADEN | 1<<ADSC | 0<<ADATE | 0<<ADIF | 0<<ADIE | 1<<ADPS2 | 1<<ADPS1 | 0<<ADPS0;
-	        // 8MHz / 64 = 125kHz, Start Conversion
-	while( ADCSRA & 1<<ADSC );            // until conversion done
-	return  ADC; 
-}
-
 void disable_adc()
 {
 	ADCSRA &= ~(1 << ADEN);
@@ -63,8 +55,14 @@ void disable_adc()
 
 long read_vcc()
 {
+	// Clear previous
+	ADMUX &= ~0x0F;
+
 	// Configure ADMUX register
 	ADMUX |=
+		(0 << ADLAR)|
+		(0 << MUX0) | 
+		(0 << MUX1) | 
 		(1 << MUX2) |  
 		(1 << MUX3) | // Use Band Gap as Vref
 		(0 << REFS0)| 
@@ -109,23 +107,28 @@ void wdt_reset_safety()
 	sei();
 }
 
-//Sets the watchdog timer to wake us up, but not reset
-//0=16ms, 1=32ms, 2=64ms, 3=128ms, 4=250ms, 5=500ms
-//6=1sec, 7=2sec, 8=4sec, 9=8sec
-//From: http://interface.khm.de/index.php/lab/experiments/sleep_watchdog_battery/
-void init_wdt(int timerPrescaler) 
+void wdt_reset_safety()
 {
+	cli(); 
+	// The MCU Status Register provides information on which reset source caused an MCU Reset.
+	// Test to see if it was the Watchdog timer - if it was disable it to avoid an infinite reset 
+	// loop.
+	if (MCUSR & (1 << WDRF))
+	{            
+		// If a reset was caused by the Watchdog Timer...
+		MCUSR &= ~(1 << WDRF);                  // Clear the WDT reset flag
+		WDTCR |= ((1 << WDCE) | (1 << WDE));    // Enable the WD Change Bit
+		WDTCR  = 0x00;                      	// Disable the WDT
+	}
+	sei();
+}
 
-  if (timerPrescaler > 9 ) timerPrescaler = 9; //Limit incoming amount to legal settings
-
-  char bb = timerPrescaler & 7; 
-  if (timerPrescaler > 7) bb |= (1<<5); //Set the special 5th bit if necessary
-
-  //This order of commands is important and cannot be combined
-  MCUSR &= ~(1<<WDRF); //Clear the watch dog reset
-  WDTCR |= (1<<WDCE) | (1<<WDE); //Set WD_change enable, set WD enable
-  WDTCR = bb; //Set new watchdog timeout value
-  WDTCR |= (1 << WDIE); //Set the interrupt enable, this will keep unit from resetting after each int
+void init_wdt()
+{
+	// Set up Watch Dog Timer for Inactivity
+	WDTCR |= ((1 << WDCE) | (1 << WDE));    // Enable the WD Change Bit
+	WDTCR  = (1 << WDIE) |               	// Enable WDT Interrupt
+           	 (1 << WDP2) | (1 << WDP1);     // Set Timeout to ~1 seconds
 }
 
 void sleep_avr()
@@ -134,13 +137,11 @@ void sleep_avr()
 	disable_adc();
 
 	set_sleep_mode(SLEEP_MODE_PWR_DOWN);    // replaces above statement
+	cli();
 	sleep_enable();                         // Sets the Sleep Enable bit in the MCUCR Register (SE BIT)
-
 	sei();                                  // Enable interrupts
 	sleep_cpu();                            // sleep
-	cli();                                  // Disable interrupts
-
-	// enable_adc();
+	sleep_disable();                        // Disable interrupts
 
 	// Enable global interrupts
 	sei(); 
@@ -154,6 +155,7 @@ void init_pins()
 {
 	// LED PIN
 	DDRB = (1 << LED_PIN);
+	DDRB = (1 << BLE_PIN);
 }
 
 void blink()
@@ -174,28 +176,36 @@ int main ()
 	// Watchdog timer reset safety check
 	wdt_reset_safety();
 	
+	// Initialise watchdog timer
+	init_wdt();
+
 	// Identify input and output pins
 	init_pins();
 
-	// Initialise watchdog timer
-	init_wdt(9);
-
+	// Buffer for text
 	char s[20];
 
+	// Setup direction and port for debug logging
 	STX_PORT |= 1<<STX_BIT;
 	STX_DDR |= 1<<STX_BIT;
-
-	sputs( "Hello!\n\r" );
 
 	for (;;)
 	{
 		// Go to sleep
 		sleep_avr();
+		
+		// Enable BLE module
+		// PORTB |= (1 << BLE_PIN);
 
+		// Read VCC and convert to base 10 number
 		utoa(read_vcc(), s, 10);
+
+		// Output VCC to soft serial PIN STX_BIT
 		sputs(s);
 		sputs("\n\r");
+
 		blink();
 		blink();
+		_delay_ms(1000);
 	}
 }
