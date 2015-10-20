@@ -1,10 +1,8 @@
 
 // LED 
-#define LED_PIN PB4
-#define LED_DURATION 1000
-
-// Bluetooth switch on/off
-#define BLE_PIN PB2
+#define LED_PIN PB3 	
+#define LED_DURATION 500
+#define FULL_CHARGE_MV 5300
 
 #include <stdlib.h>
 #include <avr/io.h>
@@ -13,12 +11,18 @@
 #include <avr/wdt.h>        // Supplied Watch Dog Timer Macros 
 #include <util/delay.h>
 
-#define BAUD            9600
+#define BAUD 9600
 
-#define STX_PORT        PORTB
-#define STX_DDR         DDRB
-#define STX_BIT         4
+#define STX_PORT PORTB
+#define STX_DDR DDRB
+#define STX_BIT 4
 
+#define MAX_READINGS 10	// DSP
+
+int reading_index = 0;
+long total = 0;
+long average = 0;
+long readings[MAX_READINGS];
 
 void sputchar( uint8_t c )
 {
@@ -107,28 +111,20 @@ void wdt_reset_safety()
 	sei();
 }
 
-void wdt_reset_safety()
-{
-	cli(); 
-	// The MCU Status Register provides information on which reset source caused an MCU Reset.
-	// Test to see if it was the Watchdog timer - if it was disable it to avoid an infinite reset 
-	// loop.
-	if (MCUSR & (1 << WDRF))
-	{            
-		// If a reset was caused by the Watchdog Timer...
-		MCUSR &= ~(1 << WDRF);                  // Clear the WDT reset flag
-		WDTCR |= ((1 << WDCE) | (1 << WDE));    // Enable the WD Change Bit
-		WDTCR  = 0x00;                      	// Disable the WDT
-	}
-	sei();
-}
-
 void init_wdt()
 {
 	// Set up Watch Dog Timer for Inactivity
 	WDTCR |= ((1 << WDCE) | (1 << WDE));    // Enable the WD Change Bit
 	WDTCR  = (1 << WDIE) |               	// Enable WDT Interrupt
-           	 (1 << WDP2) | (1 << WDP1);     // Set Timeout to ~1 seconds
+           	 (1 << WDP3);     				// Set Timeout to ~4 seconds
+}
+
+void init_wdt_05s()
+{
+	// Set up Watch Dog Timer for Inactivity
+	WDTCR |= ((1 << WDCE) | (1 << WDE));    // Enable the WD Change Bit
+	WDTCR  =  (1 << WDIE) |               	// Enable WDT Interrupt
+           	  (1 << WDP0) | (1 << WDP2);     				// Set Timeout to ~0.5 seconds
 }
 
 void sleep_avr()
@@ -155,13 +151,34 @@ void init_pins()
 {
 	// LED PIN
 	DDRB = (1 << LED_PIN);
-	DDRB = (1 << BLE_PIN);
 }
 
 void blink()
 {
 	PORTB ^= (1 << LED_PIN);
 	_delay_ms(LED_DURATION);
+	PORTB ^= (1 << LED_PIN);
+}
+
+void dsp(long val)
+{
+	// subtract the last reading:
+	total = total - readings[reading_index];
+	
+	// read from the sensor:
+	readings[reading_index] = val;
+	
+	// add the reading to the total:
+	total = total + readings[reading_index];
+	
+	// advance to the next position in the array:
+	reading_index = reading_index + 1;
+
+	// if we're at the end of the array...
+	if (reading_index >= MAX_READINGS) reading_index = 0;
+
+	// calculate the average:
+  	average = total / MAX_READINGS;
 }
 
 ISR(WDT_vect)
@@ -189,23 +206,30 @@ int main ()
 	STX_PORT |= 1<<STX_BIT;
 	STX_DDR |= 1<<STX_BIT;
 
+	// Initialise DSP
+	int i = 0;
+	for (; i < MAX_READINGS; i++) readings[i] = 0;
+
 	for (;;)
 	{
 		// Go to sleep
 		sleep_avr();
 		
-		// Enable BLE module
-		// PORTB |= (1 << BLE_PIN);
-
 		// Read VCC and convert to base 10 number
-		utoa(read_vcc(), s, 10);
+		long vcc = read_vcc();
+
+		dsp(vcc);
+		utoa(average, s, 10);
 
 		// Output VCC to soft serial PIN STX_BIT
 		sputs(s);
 		sputs("\n\r");
 
-		blink();
-		blink();
-		_delay_ms(1000);
+		if (average > FULL_CHARGE_MV)
+		{
+			init_wdt_05s();
+			blink();
+		}
+		else init_wdt();	
 	}
 }

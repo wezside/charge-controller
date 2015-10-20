@@ -27,7 +27,7 @@ CC_LST = -Wa,-adhlns
 AVRDUDE_CONF = -C /usr/share/arduino/hardware/tools/avrdude.conf -v
 AVRDUDE_WRITE_FLASH = -U flash:w:$(SOURCE).hex
 AVRDUDE_PROGRAMER = stk500v1
-AVRDUDE_PORT = /dev/ttyACM2
+AVRDUDE_PORT = /dev/ttyACM0
 BAUDRATE = 19200
 
 # some strings for the UI
