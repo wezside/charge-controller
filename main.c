@@ -1,56 +1,21 @@
-
-// LED 
-#define LED_PIN PB3 	
-#define LED_DURATION 500
-#define FULL_CHARGE_MV 5300
-
 #include <stdlib.h>
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <avr/sleep.h>
 #include <avr/wdt.h>        // Supplied Watch Dog Timer Macros 
 #include <util/delay.h>
+#include "utilz.h"
 
-#define BAUD 9600
-
-#define STX_PORT PORTB
-#define STX_DDR DDRB
-#define STX_BIT 4
-
+// LED 
+#define LED_PIN PB3 	
+#define LED_DURATION 500
+#define FULL_CHARGE_MV 4800
 #define MAX_READINGS 10	// DSP
 
 int reading_index = 0;
 long total = 0;
 long average = 0;
 long readings[MAX_READINGS];
-
-void sputchar( uint8_t c )
-{
-	c = ~c;
-	STX_PORT &= ~(1<<STX_BIT);            // start bit
-
-	// 10 bits
-	uint8_t i = 10;
-	for( ; i > 0; i-- )
-	{    
-		_delay_us( 1e6 / BAUD );            // bit duration
-		if( c & 1 )
-		{
-			STX_PORT &= ~(1<<STX_BIT);        // data bit 0
-		}
-		else
-		{			
-			STX_PORT |= 1<<STX_BIT;           // data bit 1 or stop bit
-		}
-		c >>= 1;
-	}
-} 
-
-void sputs( void *s )
-{
-	uint8_t *s1 = s;
-	while( *s1 ) sputchar( *s1++ );
-}
 
 void disable_adc()
 {
@@ -78,7 +43,7 @@ long read_vcc()
 		(0 << ADSC); // Set ADSC to 0 to make sure no conversions are happening
 
 	// Wait for Vref to settle
-  	_delay_ms(250);
+  	_delay_us(250);
 
 	// Start conversion
 	ADCSRA |= (1 << ADSC);
@@ -89,9 +54,10 @@ long read_vcc()
 	uint8_t low  = ADCL; // must read ADCL first - it then locks ADCH  
 	uint8_t high = ADCH; // unlocks both
 
-	long result = (high<<8) | low;
+	long result = (high << 8) | low;
+	result = 1126400L / result; // Calculate Vcc (in mV); 1126400 = 1.1*1024*1000
 
-	result = 1125300L / result; // Calculate Vcc (in mV); 1125300 = 1.1*1023*1000
+	ADCSRA = 0; // Turn off ADC
   	return result; // Vcc in millivolts
 }
 
@@ -124,7 +90,7 @@ void init_wdt_05s()
 	// Set up Watch Dog Timer for Inactivity
 	WDTCR |= ((1 << WDCE) | (1 << WDE));    // Enable the WD Change Bit
 	WDTCR  =  (1 << WDIE) |               	// Enable WDT Interrupt
-           	  (1 << WDP0) | (1 << WDP2);     				// Set Timeout to ~0.5 seconds
+           	  (1 << WDP0) | (1 << WDP2);    // Set Timeout to ~0.5 seconds
 }
 
 void sleep_avr()
@@ -203,12 +169,14 @@ int main ()
 	char s[20];
 
 	// Setup direction and port for debug logging
-	STX_PORT |= 1<<STX_BIT;
-	STX_DDR |= 1<<STX_BIT;
+	util_init();
 
 	// Initialise DSP
 	int i = 0;
 	for (; i < MAX_READINGS; i++) readings[i] = 0;
+
+	// Init status
+	blink();
 
 	for (;;)
 	{
@@ -217,17 +185,22 @@ int main ()
 		
 		// Read VCC and convert to base 10 number
 		long vcc = read_vcc();
+		utoa(vcc, s, 10);
+		sputs("VCC: ");
+		sputs(s);
+		sputs("\n\r");
 
 		dsp(vcc);
+		sputs("AVG: ");
 		utoa(average, s, 10);
 
 		// Output VCC to soft serial PIN STX_BIT
 		sputs(s);
 		sputs("\n\r");
 
-		if (average > FULL_CHARGE_MV)
+		if (vcc > FULL_CHARGE_MV)
 		{
-			init_wdt_05s();
+			// init_wdt_05s();
 			blink();
 		}
 		else init_wdt();	
